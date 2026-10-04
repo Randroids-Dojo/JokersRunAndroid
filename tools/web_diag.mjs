@@ -17,14 +17,23 @@ const [cx, cy, cz] = views.c;
 const sets = {
   storm: [[cx, cy + 120, cz + 300], [-9000, 1800, 26000]],
   wake: [[cx + 260, cy + 140, cz + 1100], [cx, cy, cz + 400]],
+  // Same views as the selftest "storm" mode, shot without the title overlay.
+  storm_far: [[cx, cy + 120, cz + 300], [-9000, 1800, 26000]],
+  storm_mid: [[2000, 900, 6000], [-6000, 1500, 24000]],
+  storm_near: [[-4000, 700, 13000], [-9000, 1400, 26000]],
 };
 if (views.cl) sets.clouds = [[views.cl[0], views.cl[1] + 300, views.cl[2] + 2600], views.cl];
 for (const [name, [p, l]] of Object.entries(sets)) {
-  await page.evaluate(([p, l]) => {
+  await page.evaluate(([name, p, l]) => {
+    if (name.startsWith('storm_')) {
+      for (const e of document.querySelectorAll('body *')) {
+        if (!(e instanceof HTMLCanvasElement) && !e.querySelector('canvas')) e.style.visibility = 'hidden';
+      }
+    }
     window.__joker.game.env.lightningTimer = 1e9;
     window.__joker.game.rig.play((t, f) => { f.pos.set(...p); f.look.set(...l); f.up.set(0, 1, 0); f.fov = 60; });
-  }, [p, l]);
+  }, [name, p, l]);
   await page.waitForTimeout(1200);
-  await page.screenshot({ path: out + `diag_${name}.png` });
+  await page.screenshot({ path: out + (name.startsWith('storm_') ? `${name}.png` : `diag_${name}.png`) });
 }
 await browser.close();

@@ -116,6 +116,7 @@ func _build_rain() -> void:
 		var q := QuadMesh.new()
 		q.size = Vector2(4600, 2300)
 		q.material = Models.basic(Color("595959"), false, true, tex)
+		q.material.render_priority = -5  # behind the storm clouds (see CloudLayer)
 		var mi := MeshInstance3D.new()
 		mi.mesh = q
 		var x := -30000.0 + i * 4800.0 + rng.next() * 1500.0

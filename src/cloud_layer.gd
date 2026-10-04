@@ -43,7 +43,10 @@ func _init(layout: Dictionary, is_storm: bool) -> void:
 	mm.instance_count = n
 	multimesh = mm
 	custom_aabb = AABB(Vector3(-60000, -1000, -60000), Vector3(120000, 12000, 120000))
-	sorting_offset = -50.0 if is_storm else 0.0
+	# The web draws the storm (renderOrder -4) after the rain curtains and before every
+	# other transparent; distance sorting put close-up rain on top of it.
+	if is_storm:
+		_mat.render_priority = -4
 	_buf.resize(n * 16)
 	_write()
 

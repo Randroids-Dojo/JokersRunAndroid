@@ -183,6 +183,8 @@ func _run() -> void:
 		await _screen_shots()
 	elif mode == "diag":
 		await _diag()
+	elif mode == "storm":
+		await _storm_views()
 	elif mode == "matrix":
 		await _matrix()
 	elif mode == "matrix2":
@@ -426,6 +428,24 @@ func _diag() -> void:
 		caption("DIAG flight %d" % i)
 		await frame_stats("flight%d" % i)
 	g.bot = Callable()
+
+
+## The storm front and its rain curtains from far, mid and close range (tools/web_diag.mjs
+## shoots the same views in the browser).
+func _storm_views() -> void:
+	g.screens.show_screen("")
+	g.world._lightning_t = 1e9
+	var c := g.fleet.carrier_pos()
+	var views := {
+		"storm_far": [c + Vector3(0, 120, 300), Vector3(-9000, 1800, 26000)],
+		"storm_mid": [Vector3(2000, 900, 6000), Vector3(-6000, 1500, 24000)],
+		"storm_near": [Vector3(-4000, 700, 13000), Vector3(-9000, 1400, 26000)],
+	}
+	for name in views:
+		var v: Array = views[name]
+		g.rig.play(func(_t: float) -> Dictionary: return {"pos": v[0], "look": v[1], "fov": 60.0})
+		await _wait(2.0)
+		await shot(name)
 
 
 ## A row of identical test objects, one material/feature variant each, in front of a fixed

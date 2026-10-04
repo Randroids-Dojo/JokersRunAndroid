@@ -58,13 +58,27 @@ Run without `--headless` so the shader baker can use the GPU.
 
 ## Verification
 
-`src/selftest.gd` is an automated on-device test. It is on in the `Android Selftest` / `Android Selftest GL` export presets (feature tag `selftest`), or on desktop with `godot --path . -- --selftest=<mode> --quit`:
+`src/selftest.gd` is an automated on-device test. It is on in the `Android Selftest` export preset (feature tag `selftest`, installs as a separate "Joker's Run Selftest" app next to the game), or on desktop with `godot --path . -- --selftest=<mode> --quit`:
 
 - `touch` sends synthetic multi-touch through the real input pipeline and checks launch, skip, stick, assisted turn, guns while steering, the boost latch, brake, roll, missile, pause and resume.
 - `full` runs `touch`, then the test bot flies the entire mission to the debrief.
 - `shots` and `screens` take reference screenshots for comparison with `tools/web_shots.mjs` and `tools/web_screens.mjs`.
+- `diag` and `storm` shoot fixed views of the transparent effects for comparison with `tools/web_diag.mjs`.
 
 Results go to the log as `SELFTEST PASS/FAIL` lines (`adb logcat -s godot`), and screenshots go to `user://shots/`.
+
+To test on a phone over Wi-Fi, turn on Wireless debugging, choose "Pair device with pairing code", then:
+
+```sh
+adb pair <ip>:<pairing-port> <code>
+adb connect <ip>:<port>
+adb install --user 0 -r build/JokersRun-selftest.apk   # --user 0 skips a work profile
+adb shell run-as com.randroids.jokersrun.selftest sh -c 'echo full > files/selftest_mode.txt'
+adb shell monkey -p com.randroids.jokersrun.selftest -c android.intent.category.LAUNCHER 1
+adb exec-out run-as com.randroids.jokersrun.selftest cat files/shots/01_title.png > title.png
+```
+
+Godot's export restarts the adb server, so run `adb connect` again after exporting.
 
 ## Assets
 
