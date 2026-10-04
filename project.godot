@@ -1,0 +1,85 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[application]
+
+config/name="Joker's Run"
+config/description="Arcade flight combat. Mission 01: Joker's Run."
+run/main_scene="res://main.tscn"
+config/quit_on_go_back=false
+config/features=PackedStringArray("4.6", "Mobile")
+boot_splash/bg_color=Color(0.0196, 0.0314, 0.0471, 1)
+boot_splash/show_image=false
+config/icon="res://icon.png"
+
+[audio]
+
+general/text_to_speech=true
+
+[display]
+
+window/size/viewport_width=844
+window/size/viewport_height=390
+window/size/window_width_override=1688
+window/size/window_height_override=780
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+window/handheld/orientation=4
+
+[input_devices]
+
+sensors/enable_accelerometer=true
+sensors/enable_gravity=true
+
+[rendering]
+
+renderer/rendering_method="mobile"
+textures/vram_compression/import_etc2_astc=true
+anti_aliasing/quality/msaa_3d=1
+environment/defaults/default_clear_color=Color(0.68, 0.76, 0.82, 1)
+
+[shader_globals]
+
+sun_dir={
+"type": "vec3",
+"value": Vector3(-0.55, 0.42, 0.72)
+}
+sun_color={
+"type": "vec3",
+"value": Vector3(1, 0.88, 0.67)
+}
+hemi_sky={
+"type": "vec3",
+"value": Vector3(0.62, 0.76, 1)
+}
+hemi_ground={
+"type": "vec3",
+"value": Vector3(0.08, 0.1, 0.085)
+}
+fog_color={
+"type": "vec3",
+"value": Vector3(0.42, 0.54, 0.64)
+}
+fog_density={
+"type": "float",
+"value": 5.2e-05
+}
+flash0={
+"type": "vec4",
+"value": Vector4(0, -10000, 0, 0)
+}
+flash1={
+"type": "vec4",
+"value": Vector4(0, -10000, 0, 0)
+}
+flash2={
+"type": "vec4",
+"value": Vector4(0, -10000, 0, 0)
+}

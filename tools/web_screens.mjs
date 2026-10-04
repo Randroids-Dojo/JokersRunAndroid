@@ -1,0 +1,24 @@
+// Web reference shots of the pause, fail and debrief screens at phone size.
+import { chromium } from '../../JokersRunArcade/node_modules/playwright-core/index.mjs';
+const out = new URL('../artifacts/web/', import.meta.url).pathname;
+const browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--use-angle=metal', '--ignore-gpu-blocklist'] });
+const ctx = await browser.newContext({ viewport: { width: 844, height: 390 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+const page = await ctx.newPage();
+await page.goto('http://localhost:5190/?debug');
+await page.waitForTimeout(2000);
+await page.evaluate(`__joker.start('training')`);
+await page.waitForTimeout(3000);
+await page.evaluate(`__joker.game.pause()`);
+await page.waitForTimeout(500);
+await page.screenshot({ path: out + 'pause.png' });
+await page.evaluate(`__joker.game.resume()`);
+await page.waitForTimeout(500);
+await page.evaluate(`__joker.game.fail('AIRCRAFT DESTROYED', 'Joker 1 is down.')`);
+await page.waitForTimeout(1200);
+await page.screenshot({ path: out + 'fail_banner.png' });
+await page.waitForTimeout(2500);
+await page.screenshot({ path: out + 'fail.png' });
+await page.evaluate(`__joker.game.score.total = 123450; __joker.game.showDebrief()`);
+await page.waitForTimeout(800);
+await page.screenshot({ path: out + 'debrief.png' });
+await browser.close();
