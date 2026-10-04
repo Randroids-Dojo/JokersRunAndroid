@@ -1,8 +1,10 @@
 // Sky gradient, sun glow, horizon haze and the storm band, drawn on a camera-centred dome
 // just inside the far plane like the web build's sky mesh (no radiance cubemap to update on
-// mobile GPUs). It writes no depth, so everything nearer draws over it.
+// mobile GPUs). It is an ordinary opaque surface: it draws before every transparent effect
+// (a depth_draw_never material would be sorted with the transparents and cover them), and
+// anything nearer occludes it early.
 shader_type spatial;
-render_mode unshaded, cull_front, depth_draw_never, fog_disabled, shadows_disabled;
+render_mode unshaded, cull_front, fog_disabled, shadows_disabled;
 #include "res://shaders/tone.gdshaderinc"
 
 uniform vec3 zenith;
@@ -26,7 +28,9 @@ void fragment() {
 	float s = max(dot(d, normalize(sun_dir)), 0.0);
 	col += sun_col * (pow(s, 1500.0) * 25.0 + pow(s, 40.0) * 0.35 + pow(s, 6.0) * 0.12);
 	col = mix(col, fog_col, exp(-abs(y) * 16.0) * 0.55);
-	float st = max(dot(normalize(vec3(d.x, 0.0, d.z)), storm_dir), 0.0);
+	vec2 hz = d.xz;
+	float hl = length(hz);
+	float st = hl > 1e-5 ? max(dot(vec3(hz.x, 0.0, hz.y) / hl, storm_dir), 0.0) : 0.0;
 	float band = smoothstep(0.6, 0.98, st) * exp(-max(y, 0.0) * 9.0);
 	col = mix(col, vec3(0.25, 0.28, 0.33), band * 0.55);
 	col += vec3(0.6, 0.65, 0.8) * flash * band;

@@ -125,7 +125,7 @@ func _input(event: InputEvent) -> void:
 		var d := event as InputEventScreenDrag
 		if d.index == _stick_id:
 			_update_stick(d.position)
-	elif event is InputEventKey and event.is_pressed() and (event as InputEventKey).keycode != KEY_BACK:
+	elif event is InputEventKey and event.is_pressed() and InputRouter.is_keyboard_key(event as InputEventKey):
 		set_enabled(false)
 	elif event is InputEventJoypadButton and event.is_pressed():
 		set_enabled(false)

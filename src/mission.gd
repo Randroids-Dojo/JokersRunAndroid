@@ -396,6 +396,12 @@ func _ring_prompt(i: int) -> void:
 	g.hud.prompt(lines[kind])
 
 
+## The input device changed (touch <-> keyboard/pad): reword the current checkpoint prompt.
+func refresh_prompt() -> void:
+	if tutorial_running and ring_idx < rings.size() and not rings[ring_idx].done:
+		_ring_prompt(ring_idx)
+
+
 func _style_rings() -> void:
 	for i in rings.size():
 		var r: Dictionary = rings[i]

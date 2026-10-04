@@ -86,7 +86,18 @@ static func emitter(additive: bool, amount: int, lifetime: float, size0: float, 
 	p.direction = Vector3(0, 1, 0)
 	p.spread = 180.0
 	p.extra_cull_margin = 400.0
+	clear_gpu_buffer(p)
 	return p
+
+
+## Godot allocates a particle node's GPU instance buffer uninitialised and marks every
+## instance visible until the node first simulates. Desktop drivers hand back zeroed memory,
+## but on phones the leftovers draw as huge coloured quads, so write zeros (zero scale =
+## invisible) straight away. `amount` must not change afterwards: that reallocates.
+static func clear_gpu_buffer(p: CPUParticles3D) -> void:
+	var z := PackedFloat32Array()
+	z.resize(p.amount * 20)
+	RenderingServer.multimesh_set_buffer(p.get_base(), z)
 
 
 func _ready() -> void:
@@ -111,7 +122,9 @@ func _ready() -> void:
 			r.add_child(e)
 		_booms.append({"root": r, "flash": flash, "fire": fire, "sparks": sparks, "smoke": smoke})
 	for i in SPARK_POOL:
-		var s := emitter(true, 7, 0.35, 4.0, 0.6, Color(1, 0.9, 0.55, 1), Color(1, 0.45, 0.1, 0), true)
+		# Alternate small (6) and big (11) bursts; resizing an emitter at runtime would
+		# reallocate its GPU buffer.
+		var s := emitter(true, 6 if i % 2 == 0 else 11, 0.35, 4.0, 0.6, Color(1, 0.9, 0.55, 1), Color(1, 0.45, 0.1, 0), true)
 		s.lifetime_randomness = 0.5
 		s.initial_velocity_min = 40.0
 		s.initial_velocity_max = 120.0
@@ -236,10 +249,10 @@ func ring_burst(pos: Vector3, basis: Basis, radius: float) -> void:
 
 
 func hit_sparks(pos: Vector3, big := false) -> void:
-	var s := _sparks[_spark_i]
-	_spark_i = (_spark_i + 1) % SPARK_POOL
+	# Even slots hold 6-particle emitters, odd slots 11.
+	_spark_i = (_spark_i + 1) % (SPARK_POOL / 2)
+	var s := _sparks[_spark_i * 2 + (1 if big else 0)]
 	s.global_position = pos
-	s.amount = 11 if big else 6
 	s.scale_amount_max = 5.0 if big else 3.5
 	s.scale_amount_min = s.scale_amount_max
 	s.restart()

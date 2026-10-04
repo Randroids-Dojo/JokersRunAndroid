@@ -11,7 +11,6 @@ var nz := 568
 var bridge_x := 10700.0
 var bridge_deck_y := 135.0
 var heights := PackedFloat32Array()
-var heights_tex: ImageTexture
 var shore_tex: ImageTexture
 var colliders: Array[AABB] = []
 var mesh_instance: MeshInstance3D
@@ -44,32 +43,69 @@ func _init() -> void:
 	bridge_deck_y = meta.bridgeDeckY
 	var raw := FileAccess.get_file_as_bytes("res://assets/data/heights.bin")
 	heights = raw.to_float32_array()
-	var img := Image.create_from_data(nx, nz, false, Image.FORMAT_RF, raw)
-	heights_tex = ImageTexture.create_from_image(img)
 	var raw8 := FileAccess.get_file_as_bytes("res://assets/data/heights8.bin")
 	shore_tex = ImageTexture.create_from_image(Image.create_from_data(nx, nz, false, Image.FORMAT_R8, raw8))
 
 
 func _ready() -> void:
-	var w := (nx - 1) * cell
-	var d := (nz - 1) * cell
-	var plane := PlaneMesh.new()
-	plane.size = Vector2(w, d)
-	plane.subdivide_width = nx - 2
-	plane.subdivide_depth = nz - 2
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://shaders/terrain.gdshader")
-	mat.set_shader_parameter("heights", heights_tex)
-	mat.set_shader_parameter("grid_half", Vector2(w / 2.0, d / 2.0))
-	mat.set_shader_parameter("cell", cell)
-	mat.set_shader_parameter("grid_n", Vector2i(nx, nz))
-	plane.material = mat
 	mesh_instance = MeshInstance3D.new()
-	mesh_instance.mesh = plane
-	mesh_instance.position = Vector3(x0 + w / 2.0, 0, z0 + d / 2.0)
-	mesh_instance.custom_aabb = AABB(Vector3(-w / 2.0, -80, -d / 2.0), Vector3(w, 1100, d))
+	mesh_instance.mesh = _build_mesh()
+	mesh_instance.material_override = mat
+	mesh_instance.custom_aabb = AABB(Vector3(x0, -80, z0), Vector3((nx - 1) * cell, 1100, (nz - 1) * cell))
 	add_child(mesh_instance)
 	_build_bridge()
+
+
+## The height-field grid as a real mesh (heights in the vertices, slope in UV.x) with the
+## same triangle split as height(). Built on the CPU rather than displaced in the vertex
+## shader: some mobile GPUs mis-read the height texture there and throw spikes across the sky.
+func _build_mesh() -> ArrayMesh:
+	var n := nx * nz
+	var verts := PackedVector3Array()
+	verts.resize(n)
+	var uvs := PackedVector2Array()
+	uvs.resize(n)
+	var inv := 1.0 / (2.0 * cell)
+	for j in nz:
+		var jm := maxi(j - 1, 0) * nx
+		var jp := mini(j + 1, nz - 1) * nx
+		var row := j * nx
+		var z := z0 + j * cell
+		for i in nx:
+			var k := row + i
+			verts[k] = Vector3(x0 + i * cell, heights[k], z)
+			var dx := heights[row + mini(i + 1, nx - 1)] - heights[row + maxi(i - 1, 0)]
+			var dz := heights[jp + i] - heights[jm + i]
+			uvs[k] = Vector2(sqrt(dx * dx + dz * dz) * inv, 0.0)
+	var idx := PackedInt32Array()
+	idx.resize((nx - 1) * (nz - 1) * 6)
+	var o := 0
+	for j in nz - 1:
+		var row := j * nx
+		for i in nx - 1:
+			var a := row + i
+			var b := a + 1
+			var c := a + nx
+			var d := c + 1
+			# Triangles (a, b, c) and (b, d, c): the a-b-c / b-c-d split used by height(),
+			# wound clockwise as seen from above.
+			idx[o] = a
+			idx[o + 1] = b
+			idx[o + 2] = c
+			idx[o + 3] = b
+			idx[o + 4] = d
+			idx[o + 5] = c
+			o += 6
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_INDEX] = idx
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
 
 
 ## Height of the rendered surface (same triangle split as the mesh). May be below sea level.

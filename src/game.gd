@@ -130,6 +130,7 @@ func _ready() -> void:
 	touch.set_enabled(DisplayServer.is_touchscreen_available())
 	touch.enabled_changed.connect(func(_on: bool) -> void:
 		screens.set_touch_mode(touch.enabled)
+		mission.refresh_prompt()
 		_on_resize())
 	screens = Screens.new()
 	screens.settings = settings

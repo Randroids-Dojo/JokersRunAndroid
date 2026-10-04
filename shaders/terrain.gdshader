@@ -1,13 +1,9 @@
-// Peninsula terrain: a native grid displaced from the baked height field, with the web
-// build's per-vertex colouring (grass, rock, cliff, snow, sand, wet shore) and flat shading.
+// Peninsula terrain: the baked height-field grid with the web build's per-vertex colouring
+// (grass, rock, cliff, snow, sand, wet shore) and flat shading.
 shader_type spatial;
 render_mode unshaded, cull_back, fog_disabled;
 #include "res://shaders/lighting.gdshaderinc"
 
-uniform sampler2D heights : filter_nearest;
-uniform vec2 grid_half;
-uniform float cell;
-uniform ivec2 grid_n;
 varying vec3 wpos;
 varying vec3 vcol;
 
@@ -19,17 +15,11 @@ float vnoise(vec2 p) {
 	return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
 }
 vec3 lin(vec3 c) { return pow(c, vec3(2.2)); }
-float h_at(ivec2 c) { return texelFetch(heights, clamp(c, ivec2(0), grid_n - ivec2(1)), 0).r; }
 
 void vertex() {
-	ivec2 c = ivec2(int(round((VERTEX.x + grid_half.x) / cell)), int(round((VERTEX.z + grid_half.y) / cell)));
-	float h = h_at(c);
-	VERTEX.y = h;
-	float hl = h_at(c - ivec2(1, 0));
-	float hr = h_at(c + ivec2(1, 0));
-	float hu = h_at(c - ivec2(0, 1));
-	float hd = h_at(c + ivec2(0, 1));
-	float slope = length(vec2(hr - hl, hd - hu)) / (2.0 * cell);
+	// Heights are baked into the vertices on the CPU; UV.x carries the local slope.
+	float h = VERTEX.y;
+	float slope = UV.x;
 	wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	vec3 sand = lin(vec3(0.72, 0.66, 0.5));
 	vec3 wet = lin(vec3(0.3, 0.32, 0.27));

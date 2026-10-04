@@ -23,6 +23,10 @@ func _ready() -> void:
 			mode = a.substr(11)
 		elif a.begins_with("--speed="):
 			speed = float(a.substr(8))
+	# On a debuggable device build the mode can be set without rebuilding:
+	#   adb shell run-as com.randroids.jokersrun sh -c 'echo diag > files/selftest_mode.txt'
+	if FileAccess.file_exists("user://selftest_mode.txt"):
+		mode = FileAccess.get_file_as_string("user://selftest_mode.txt").strip_edges()
 	DirAccess.make_dir_recursive_absolute("user://shots")
 	_log("start mode=%s speed=%.1f os=%s renderer=%s" % [mode, speed, OS.get_name(), RenderingServer.get_current_rendering_method()])
 	_run.call_deferred()
@@ -52,6 +56,48 @@ func _wait_until(test: Callable, timeout: float) -> bool:
 			return false
 		await get_tree().process_frame
 	return true
+
+
+var _label: Label
+
+
+## Big on-screen caption so recorded device video can be matched to diag steps.
+func caption(text: String) -> void:
+	if _label == null:
+		var layer := CanvasLayer.new()
+		layer.layer = 100
+		add_child(layer)
+		_label = Label.new()
+		_label.add_theme_font_size_override("font_size", 22)
+		_label.add_theme_color_override("font_color", Color(1, 0, 1))
+		_label.position = Vector2(300, 4)
+		layer.add_child(_label)
+	_label.text = text
+	_log("caption " + text)
+
+
+## Pixel statistics of the current frame: share of flat light-grey (the device "white
+## blob" colour), saturated green, and the mean colour.
+func frame_stats(tag: String) -> void:
+	await RenderingServer.frame_post_draw
+	var img := get_viewport().get_texture().get_image()
+	var w := img.get_width()
+	var h := img.get_height()
+	var n := 0
+	var grey := 0
+	var green := 0
+	var sum := Vector3.ZERO
+	for y in range(0, h, 9):
+		for x in range(0, w, 9):
+			var c := img.get_pixel(x, y)
+			n += 1
+			sum += Vector3(c.r, c.g, c.b)
+			if absf(c.r - 0.898) < 0.025 and absf(c.g - 0.902) < 0.025 and absf(c.b - 0.902) < 0.025:
+				grey += 1
+			if c.g > 0.8 and c.r < 0.45 and c.b < 0.25:
+				green += 1
+	var m := sum / maxf(n, 1)
+	_log("stats %s grey=%.3f green=%.3f mean=(%.2f,%.2f,%.2f)" % [tag, float(grey) / n, float(green) / n, m.x, m.y, m.z])
 
 
 func shot(name: String) -> void:
@@ -135,6 +181,12 @@ func _run() -> void:
 		await _reference_shots()
 	elif mode == "screens":
 		await _screen_shots()
+	elif mode == "diag":
+		await _diag()
+	elif mode == "matrix":
+		await _matrix()
+	elif mode == "matrix2":
+		await _matrix2()
 	else:
 		await _touch_suite()
 		if mode == "full":
@@ -226,8 +278,15 @@ func _mission_run() -> void:
 	var phase_t0 := Time.get_ticks_msec()
 	var shots_taken := {}
 	var t0 := Time.get_ticks_msec()
+	var perf_t := Time.get_ticks_msec()
+	var frames := 0
 	while g.state != "debrief":
 		await get_tree().process_frame
+		frames += 1
+		if Time.get_ticks_msec() - perf_t >= 10000:
+			_log("perf fps=%.1f scale3d=%.2f aircraft=%d" % [frames * 1000.0 / (Time.get_ticks_msec() - perf_t), get_viewport().scaling_3d_scale, g.aircraft.size()])
+			perf_t = Time.get_ticks_msec()
+			frames = 0
 		var ph := g.mission.phase
 		if ph != last_phase:
 			_log("phase '%s' at %.0fs score=%d" % [ph, (Time.get_ticks_msec() - t0) / 1000.0, int(g.score.total)])
@@ -314,3 +373,163 @@ func _screen_shots() -> void:
 	g.show_debrief()
 	await _wait(0.8)
 	await shot("debrief")
+
+
+## Fixed camera views of the transparent effects (storm, wake, cloud field) with MSAA on and
+## off, for diagnosing GPU-specific rendering problems.
+func _diag() -> void:
+	_log("gpu name=%s vendor=%s api=%s method=%s" % [RenderingServer.get_video_adapter_name(), RenderingServer.get_video_adapter_vendor(), RenderingServer.get_video_adapter_api_version(), RenderingServer.get_current_rendering_method()])
+	# 1. The title orbit, where the device showed white walls.
+	for i in 8:
+		caption("DIAG title %d" % i)
+		await _wait(1.0)
+		await frame_stats("title%d" % i)
+	g.world._lightning_t = 1e9
+	var c := g.fleet.carrier_pos()
+	var cl: Array = g.world.clouds.clusters[0]
+	var views := {
+		"storm": [c + Vector3(0, 120, 300), Vector3(-9000, 1800, 26000)],
+		"wake": [c + Vector3(260, 140, 1100), c + Vector3(0, 0, 400)],
+		"clouds": [(cl[0] as Vector3) + Vector3(0, 300, 2600), cl[0]],
+		"terrain": [Vector3(3200, 700, 2600), Vector3(9000, 200, -1500)],
+		"coast": [c + Vector3(-400, 95, 500), c + Vector3(6000, 300, -3000)],
+	}
+	var vp := get_viewport()
+	for msaa in [Viewport.MSAA_2X, Viewport.MSAA_DISABLED]:
+		vp.msaa_3d = msaa
+		for name in views:
+			var v: Array = views[name]
+			g.rig.play(func(_t: float) -> Dictionary: return {"pos": v[0], "look": v[1], "fov": 60.0})
+			caption("DIAG %s msaa%d" % [name, msaa])
+			await _wait(2.5)
+			await frame_stats("%s_msaa%d" % [name, msaa])
+			await shot("diag_%s_msaa%d" % [name, msaa])
+	vp.msaa_3d = Viewport.MSAA_2X
+	for hide in ["terrain", "clouds", "storm", "ocean"]:
+		var node: Node3D = g.terrain if hide == "terrain" else g.world.get(hide)
+		node.visible = false
+		var v2: Array = views["coast"]
+		g.rig.play(func(_t: float) -> Dictionary: return {"pos": v2[0], "look": v2[1], "fov": 60.0})
+		caption("DIAG coast without %s" % hide)
+		await _wait(2.5)
+		await frame_stats("coast_no_%s" % hide)
+		node.visible = true
+	# 2. Fly the opening the way a player would (bot), sampling the frames.
+	caption("DIAG flight")
+	g.god = true
+	g.start_mission("launch")
+	g.bot = func(game: Game, dt: float) -> void: _bot.drive(game, dt)
+	await _wait(5.0)
+	g.controls.skip = true
+	for i in 40:
+		await _wait(1.5)
+		caption("DIAG flight %d" % i)
+		await frame_stats("flight%d" % i)
+	g.bot = Callable()
+
+
+## A row of identical test objects, one material/feature variant each, in front of a fixed
+## camera over open sea. Used to find which feature a device GPU mis-renders.
+func _matrix() -> void:
+	_log("gpu name=%s vendor=%s api=%s" % [RenderingServer.get_video_adapter_name(), RenderingServer.get_video_adapter_vendor(), RenderingServer.get_video_adapter_api_version()])
+	var root := Node3D.new()
+	g.add_child(root)
+	g.screens.show_screen("")
+	var cam := Vector3(0, 100, 5105)
+	var mats: Array = []
+	var white := Color(1, 1, 1, 0.75)
+	mats.append(["basic_mix_tm", Models.basic(white, false, true)])
+	mats.append(["basic_add", Models.basic(Color("ff9a3c", 0.9), true, false)])
+	for f in ["basic_novary", "basic_depth", "basic_vary_opaque", "basic_cullback"]:
+		var m := ShaderMaterial.new()
+		m.shader = load("res://shaders/diag/%s.gdshader" % f)
+		m.set_shader_parameter("color", white)
+		mats.append([f, m])
+	var std := StandardMaterial3D.new()
+	std.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	std.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	std.albedo_color = white
+	mats.append(["std_transparent", std])
+	mats.append(["flat_opaque", Geo.material()])
+	var x := -132.0
+	for i in mats.size():
+		var mi := MeshInstance3D.new()
+		var box := BoxMesh.new()
+		box.size = Vector3(14, 14, 14)
+		mi.mesh = box
+		mi.material_override = mats[i][1]
+		root.add_child(mi)
+		mi.global_position = Vector3(x, 100, 5000)
+		_log("matrix slot %d x=%d %s" % [i, int(x), mats[i][0]])
+		x += 24.0
+	# Wake mesh stood upright, a burner, a particle emitter.
+	var wk := Models.wake(10, 30)
+	var holder := Node3D.new()
+	root.add_child(holder)
+	holder.add_child(wk)
+	holder.global_position = Vector3(x, 85, 5000)
+	holder.rotation = Vector3(PI / 2.0, 0, 0)
+	_log("matrix slot %d x=%d wake_mesh" % [mats.size(), int(x)])
+	x += 24.0
+	var jet := Models.aircraft("enemy")
+	root.add_child(jet.root)
+	(jet.root as Node3D).global_position = Vector3(x, 100, 5000)
+	(jet.root as Node3D).rotation = Vector3(0, PI / 2.0, 0)
+	for b in jet.burners:
+		(b as Node3D).scale = Vector3(1, 1, 4)
+	_log("matrix slot %d x=%d jet_with_burners" % [mats.size() + 1, int(x)])
+	x += 24.0
+	var em := Fx.emitter(false, 40, 2.0, 4.0, 10.0, Color(0.95, 0.95, 0.95, 0.8), Color(0.9, 0.9, 0.9, 0.0), false)
+	em.initial_velocity_max = 2.0
+	root.add_child(em)
+	em.global_position = Vector3(x, 100, 5000)
+	em.emitting = true
+	_log("matrix slot %d x=%d particles_mix" % [mats.size() + 2, int(x)])
+	g.rig.play(func(_t: float) -> Dictionary: return {"pos": cam, "look": Vector3(0, 100, 5000), "fov": 75.0})
+	for msaa in [Viewport.MSAA_2X, Viewport.MSAA_DISABLED]:
+		get_viewport().msaa_3d = msaa
+		caption("MATRIX msaa%d" % msaa)
+		await _wait(6.0)
+		await frame_stats("matrix_msaa%d" % msaa)
+		await shot("matrix_msaa%d" % msaa)
+	get_viewport().msaa_3d = Viewport.MSAA_2X
+
+
+## Many transparent objects whose transforms change every frame (wakes, burners, particles),
+## to check whether moving transparent instances are mis-transformed on a device.
+func _matrix2() -> void:
+	_log("gpu name=%s method=%s" % [RenderingServer.get_video_adapter_name(), RenderingServer.get_current_rendering_method()])
+	g.screens.show_screen("")
+	var root := Node3D.new()
+	g.add_child(root)
+	var movers: Array = []
+	for i in 40:
+		var holder := Node3D.new()
+		root.add_child(holder)
+		var wk := Models.wake(6, 20)
+		holder.add_child(wk)
+		movers.append(holder)
+	var burners: Array = []
+	for i in 10:
+		var jet := Models.aircraft("enemy")
+		root.add_child(jet.root)
+		burners.append(jet)
+	var cam := Vector3(0, 100, 5105)
+	g.rig.play(func(_t: float) -> Dictionary: return {"pos": cam, "look": Vector3(0, 100, 5000), "fov": 75.0})
+	caption("MATRIX2 moving transparents")
+	var t := 0.0
+	for frame in 600:
+		t += get_process_delta_time()
+		for i in movers.size():
+			var m: Node3D = movers[i]
+			m.global_position = Vector3(-120 + (i % 10) * 26, 70 + (i / 10) * 18 + sin(t * 2.0 + i) * 3.0, 5000)
+			m.rotation = Vector3(PI / 2.0 + sin(t + i) * 0.3, 0, 0)
+		for i in burners.size():
+			var j: Dictionary = burners[i]
+			(j.root as Node3D).global_position = Vector3(-110 + i * 24, 140 + cos(t * 1.5 + i) * 4.0, 5000)
+			(j.root as Node3D).rotation = Vector3(0, PI / 2.0 + t * 0.5, 0)
+			for b in j.burners:
+				(b as Node3D).scale = Vector3(1, 1, 2.0 + sin(t * 9.0 + i) * 1.5)
+		if frame % 60 == 0:
+			await frame_stats("matrix2_%d" % (frame / 60))
+		await get_tree().process_frame

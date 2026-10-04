@@ -44,7 +44,10 @@ vec3 apply_fog(vec3 c, float dist) {
 }
 
 vec3 flat_normal(vec3 view_pos, mat4 inv_view) {
-	vec3 nv = normalize(cross(dFdx(view_pos), dFdy(view_pos)));
+	vec3 cr = cross(dFdx(view_pos), dFdy(view_pos));
+	// Degenerate pixel quads (far away or edge-on) give a zero cross product; never normalize 0.
+	float l = length(cr);
+	vec3 nv = l > 1e-12 ? cr / l : -normalize(view_pos);
 	if (dot(nv, view_pos) > 0.0) nv = -nv;
 	return normalize((inv_view * vec4(nv, 0.0)).xyz);
 }

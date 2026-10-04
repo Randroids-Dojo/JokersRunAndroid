@@ -18,7 +18,7 @@ var _pad_prev := {}
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey:
 		var k := event as InputEventKey
-		if k.pressed and not k.echo:
+		if k.pressed and not k.echo and is_keyboard_key(k):
 			using_pad = false
 			var code := k.physical_keycode if k.physical_keycode != KEY_NONE else k.keycode
 			_pressed[code] = true
@@ -39,6 +39,18 @@ func _input(event: InputEvent) -> void:
 		var m := event as InputEventMouseButton
 		if m.pressed and not DisplayServer.is_touchscreen_available():
 			_mouse_pressed[m.button_index] = true
+
+
+## True for keys that come from a real keyboard. Phone hardware and system keys (volume,
+## media, back) also arrive as key events and must not switch the game to keyboard mode.
+static func is_keyboard_key(k: InputEventKey) -> bool:
+	var code := k.keycode if k.keycode != KEY_NONE else k.physical_keycode
+	if code >= KEY_SPACE and code <= KEY_ASCIITILDE:
+		return true
+	return code in [KEY_ESCAPE, KEY_TAB, KEY_BACKSPACE, KEY_ENTER, KEY_KP_ENTER, KEY_SHIFT, KEY_CTRL,
+		KEY_ALT, KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_DOWN, KEY_DELETE, KEY_HOME, KEY_END, KEY_PAGEUP,
+		KEY_PAGEDOWN, KEY_F1, KEY_F2, KEY_F3, KEY_F4, KEY_F5, KEY_F6, KEY_F7, KEY_F8, KEY_F9, KEY_F10,
+		KEY_F11, KEY_F12]
 
 
 func release_all() -> void:
