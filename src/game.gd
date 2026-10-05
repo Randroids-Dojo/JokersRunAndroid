@@ -140,9 +140,9 @@ func _ready() -> void:
 	screens.toggled.connect(_on_toggle)
 	player = _make_player()
 	mission = Mission.new(self)
-	hud.radio_line.connect(func(who: String, text: String) -> void:
+	hud.on_radio = func(who: String, text: String) -> float:
 		audio.radio_blip()
-		audio.speak(text, who))
+		return audio.speak(text, who)
 	_apply_settings()
 	if settings.tilt and not touch.tilt.enable():
 		settings.tilt = false
@@ -532,6 +532,8 @@ func show_debrief() -> void:
 
 func _apply_settings() -> void:
 	audio.voice_on = settings.voice
+	if not settings.voice:
+		audio.stop_speech()
 	audio.set_muted(settings.mute)
 	audio.set_music_volume(0.5 if settings.music else 0.0)
 	rig.reduced_motion = settings.reduced_motion

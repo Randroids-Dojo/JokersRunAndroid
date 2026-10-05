@@ -4,7 +4,8 @@ extends CanvasLayer
 ## score/combo, objective + timer, hull, radar, scout uploads, gauges, boss bar, prompts,
 ## popups, radio, banners, countdown, letterbox, fades and the next-mission card.
 
-signal radio_line(who: String, text: String)
+## Plays a radio line as it is shown; returns its spoken length in seconds (0 if silent).
+var on_radio: Callable
 
 var overlay: HudOverlay
 var radar: HudRadar
@@ -698,14 +699,14 @@ func update(dt: float, g: Game) -> void:
 		_radio_cur = _radio_q.pop_front()
 		_radio_t = 0.0
 		var who: String = _radio_cur[0]
-		_radio_dur = 1.8 + (_radio_cur[1] as String).length() * 0.055
 		_radio.visible = true
 		_radio_who.text = who
 		var blue := who.begins_with("JOKER")
 		_radio_style.border_color = Cfg.C_FRIEND if blue else Cfg.C_HUD
 		_radio_who.add_theme_color_override("font_color", Cfg.C_FRIEND if blue else Cfg.C_HUD)
 		_radio_text.text = ""
-		radio_line.emit(who, _radio_cur[1])
+		var spoken: float = on_radio.call(who, _radio_cur[1]) if on_radio.is_valid() else 0.0
+		_radio_dur = maxf(1.8 + (_radio_cur[1] as String).length() * 0.055, spoken + 0.6)
 	# Numbers.
 	var s := g.score
 	if s.total != _last_score:

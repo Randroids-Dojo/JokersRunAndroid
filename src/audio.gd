@@ -1,16 +1,9 @@
 class_name GameAudio
 extends Node
 ## Pre-rendered sound effects (from tools/synth.mjs), engine and alert loops, music with
-## crossfades, and radio voices through the platform text-to-speech engine.
+## crossfades, and the recorded radio voices (tools/voice_sync.mjs).
 
 const POOL := 14
-const VOICE_PROFILES := {
-	"HALCYON": [0.85, 1.0, 0],
-	"JOKER 2": [1.0, 1.12, 1],
-	"JOKER 3": [1.15, 1.15, 2],
-	"JOKER 4": [0.9, 1.1, 3],
-	"LANTERN": [1.2, 1.08, 4],
-}
 
 var muted := false
 var voice_on := true
@@ -31,7 +24,9 @@ var _music_b: AudioStreamPlayer
 var _music_cur: AudioStreamPlayer
 var _track := ""
 var _last_shot := 0.0
-var _voices := PackedStringArray()
+var _voice: AudioStreamPlayer
+var _voice_req := 0
+var _clips := {}  # "WHO|text" -> {file, dur}
 var _boost_level := 0.0
 
 
@@ -55,8 +50,10 @@ func _ready() -> void:
 	add_child(_music_a)
 	add_child(_music_b)
 	_music_cur = _music_a
-	if DisplayServer.has_feature(DisplayServer.FEATURE_TEXT_TO_SPEECH):
-		_voices = DisplayServer.tts_get_voices_for_language("en")
+	_voice = AudioStreamPlayer.new()
+	_voice.volume_db = _db(0.8 * 0.85)
+	add_child(_voice)
+	_clips = JSON.parse_string(FileAccess.get_file_as_string("res://assets/data/voice.json"))
 
 
 func _looped(name: String) -> AudioStreamWAV:
@@ -235,22 +232,33 @@ func set_track(track: String, immediate := false) -> void:
 			tw.tween_callback(old.stop)
 
 
-func speak(text: String, who: String) -> void:
-	if not voice_on or muted or _voices.is_empty():
-		return
-	var prof: Array = VOICE_PROFILES.get(who, [1.0, 1.1, 0])
-	var voice := _voices[int(prof[2]) % _voices.size()]
-	DisplayServer.tts_speak(text, voice, 95, prof[0], prof[1])
+## Plays the line's radio clip, cutting off any line still playing. Returns the clip length
+## in seconds (0 when nothing plays) so the caption can stay up as long.
+func speak(text: String, who: String) -> float:
+	stop_speech()
+	var clip: Dictionary = _clips.get("%s|%s" % [who, text], {})
+	if clip.is_empty():
+		push_warning("No radio clip for %s: %s" % [who, text])
+		return 0.0
+	if not voice_on or muted:
+		return 0.0
+	_voice.stream = load("res://assets/" + str(clip.file))
+	_start_voice(_voice_req)
+	return float(clip.dur) + 0.08
+
+
+func _start_voice(req: int) -> void:
+	await get_tree().create_timer(0.08, false).timeout  # after the squelch
+	if req == _voice_req:
+		_voice.play()
 
 
 func stop_speech() -> void:
-	if not _voices.is_empty():
-		DisplayServer.tts_stop()
+	_voice_req += 1
+	_voice.stop()
 
 
 func pause_all(p: bool) -> void:
 	for c in get_children():
 		if c is AudioStreamPlayer:
 			(c as AudioStreamPlayer).stream_paused = p
-	if p:
-		stop_speech()

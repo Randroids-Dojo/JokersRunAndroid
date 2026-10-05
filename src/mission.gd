@@ -176,6 +176,7 @@ func _reset_flags() -> void:
 	g.hud.prompt("")
 	g.hud.clear_banners()
 	g.hud.clear_radio()
+	g.audio.stop_speech()
 	g.hud.set_radar_range(4500.0)
 	g.hud.set_visible_hud(true)
 	g.touch_teach = ""

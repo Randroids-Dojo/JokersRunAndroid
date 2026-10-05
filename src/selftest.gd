@@ -14,6 +14,8 @@ var _fails := 0
 var _passes := 0
 var _bot := Bot.new()
 var _shot_i := 0
+var _radio_lines := 0
+var _radio_played := 0
 
 
 func _ready() -> void:
@@ -167,6 +169,7 @@ func _press_ui(screen: Control, label: String) -> bool:
 
 func _run() -> void:
 	g = get_parent() as Game
+	_watch_radio()
 	await _wait(2.0)
 	_check("title_state", g.state == "title", g.state)
 	await shot("title")
@@ -322,6 +325,21 @@ func _mission_run() -> void:
 	await _wait(1.0)
 	await shot("debrief")
 	_check("mission_complete", g.state == "debrief", "score=%d rank=%s time=%.0fs" % [int(g.score.total), g.score.rank(), (Time.get_ticks_msec() - t0) / 1000.0])
+	_check("radio_voice", _radio_lines > 0 and _radio_played == _radio_lines, "%d/%d lines played" % [_radio_played, _radio_lines])
+
+
+## Counts radio lines and whether each one's clip is actually playing just after it starts.
+func _watch_radio() -> void:
+	var speak: Callable = g.hud.on_radio
+	g.hud.on_radio = func(who: String, text: String) -> float:
+		var dur: float = speak.call(who, text)
+		_radio_lines += 1
+		get_tree().create_timer(0.4, true, false, true).timeout.connect(func() -> void:
+			if g.audio._voice.playing:
+				_radio_played += 1
+			else:
+				_log("silent radio line %s: %s" % [who, text]))
+		return dur
 
 
 func _checkpoint_run(cp: String) -> void:
