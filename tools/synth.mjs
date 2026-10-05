@@ -232,10 +232,10 @@ for (const heavy of [false, true]) {
   report.push(writeWav('radio', d, 0.6));
 }
 {
-  const d = buf(2.05);
+  const d = buf(1.8);
   for (let i = 0; i < 4; i++) {
-    tone(d, i * 0.5, 660, 0.22, 'square', 0.07, 640);
-    tone(d, i * 0.5 + 0.25, 880, 0.22, 'square', 0.07, 860);
+    tone(d, i * 0.5, 1180, 0.09, 'triangle', 0.1);
+    tone(d, i * 0.5 + 0.15, 1180, 0.09, 'triangle', 0.1);
   }
   report.push(writeWav('klaxon', d, 0.7));
 }
@@ -267,8 +267,8 @@ for (const heavy of [false, true]) {
 }
 {
   const d = buf(3.0);
-  tone(d, 0, 55, 2.8, 'sawtooth', 0.12, 41);
-  tone(d, 0, 58.3, 2.8, 'sawtooth', 0.08, 43);
+  tone(d, 0, 70, 2.2, 'sine', 0.35, 38);
+  tone(d, 0, 105, 1.2, 'sine', 0.12, 60);
   for (let i = 0; i < boomBig.length && i < d.length; i++) d[i] += boomBig[i] * 0.35;
   report.push(writeWav('stinger', d, 0.9));
 }
@@ -363,14 +363,15 @@ class Track {
   }
   pad(t, notes, dur, vol) {
     const oscs = [];
-    for (const n of notes) for (const det of [-9, 0, 9]) oscs.push(oscillator('sawtooth', midi(n), midi(n), 0, det));
-    const lp = biquad('lowpass', 1100);
+    for (const n of notes) for (const det of [-9, 0, 9]) oscs.push(oscillator('triangle', midi(n), midi(n), 0, det));
+    const lp = biquad('lowpass', 900);
+    const v = vol * 1.4;
     add(
       this.d,
       t,
       dur + 0.05,
       () => lp(oscs.reduce((s, o) => s + o(), 0)),
-      (x) => (x < dur * 0.3 ? (vol * x) / (dur * 0.3) : Math.max(0, vol * (1 - (x - dur * 0.3) / (dur * 0.7)))),
+      (x) => (x < dur * 0.45 ? (v * x) / (dur * 0.45) : Math.max(0, v * (1 - (x - dur * 0.45) / (dur * 0.55)))),
     );
   }
   render(bars, fn) {

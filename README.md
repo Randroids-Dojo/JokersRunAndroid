@@ -61,7 +61,7 @@ Run without `--headless` so the shader baker can use the GPU.
 `src/selftest.gd` is an automated on-device test. It is on in the `Android Selftest` export preset (feature tag `selftest`, installs as a separate "Joker's Run Selftest" app next to the game), or on desktop with `godot --path . -- --selftest=<mode> --quit`:
 
 - `touch` sends synthetic multi-touch through the real input pipeline and checks launch, skip, stick, assisted turn, guns while steering, the boost latch, brake, roll, missile, pause and resume.
-- `full` runs `touch`, then the test bot flies the entire mission to the debrief and checks that every radio line played its voice clip.
+- `full` runs `touch`, then the test bot flies the entire mission to the debrief. It checks that every radio line played its voice clip and that no HUD text, panel or touch control ever overlaps another. Headless on a desktop it skips screenshots and lays out for a Pixel 8 Pro screen: `godot --headless --path . -- --selftest=full --quit`. Add `--cutout=left` or `--cutout=right` to fake a camera cutout's safe-area inset.
 - `shots` and `screens` take reference screenshots for comparison with `tools/web_shots.mjs` and `tools/web_screens.mjs`.
 - `diag` and `storm` shoot fixed views of the transparent effects for comparison with `tools/web_diag.mjs`.
 

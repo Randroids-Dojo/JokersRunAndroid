@@ -80,9 +80,11 @@ func layout(w: float, h: float, sl: float, sr: float, sb: float) -> void:
 		widths.append(tw)
 		total += tw
 	total += 12.0
-	var x0 := (w - total) / 2.0
+	# Centred, but never into the BRAKE button when a right-hand cutout shifts the cluster left.
+	var x0 := minf((w - total) / 2.0, R - 238.0 - 60.0 - 8.0 - total)
 	for i in 3:
-		_btn[ORDERS[i]] = {"rect": Rect2(x0, 100, widths[i], 28)}
+		# Bottom centre, between the thumbs and clear of the top status column.
+		_btn[ORDERS[i]] = {"rect": Rect2(x0, B - 8.0 - 28.0, widths[i], 28)}
 		x0 += widths[i] + 6.0
 	if _stick_id < 0:
 		_rest_stick()
@@ -520,7 +522,7 @@ func _draw_hint() -> void:
 	if hint == "":
 		return
 	var a := 1.0 if fmod(_anim_t, 1.2) < 0.6 else 0.25
-	HudOverlay.text_at(self, Vector2(size.x / 2.0, size.y * 0.78 - 9.0), hint, 13, Color(1, 1, 1, 0.85 * a), HORIZONTAL_ALIGNMENT_CENTER, UiKit.spaced(UiKit.bold, 3.9))
+	HudOverlay.text_at(self, Vector2(size.x / 2.0, size.y * 0.67 - 9.0), hint, 13, Color(1, 1, 1, 0.85 * a), HORIZONTAL_ALIGNMENT_CENTER, UiKit.spaced(UiKit.bold, 3.9))
 
 
 # ---------------------------------------------------------------- Tilt

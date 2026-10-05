@@ -6,6 +6,8 @@ extends Control
 
 var hud: Hud
 var game: Game
+## Boxes of the text drawn this frame, so the FIRE cue can keep clear of target labels.
+var _labels: Array[Rect2] = []
 
 
 func _ready() -> void:
@@ -20,6 +22,49 @@ func _proj(cam: Camera3D, p: Vector3) -> Vector3:
 ## Text with a CSS-like "middle" baseline and a soft dark outline (the web's shadowBlur).
 func _text(pos: Vector2, text: String, size: int, color: Color, align := HORIZONTAL_ALIGNMENT_CENTER, font: Font = null) -> void:
 	HudOverlay.text_at(self, pos, text, size, color, align, font)
+	var w := (font if font else UiKit.semibold).get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+	var x0 := pos.x - w / 2.0 if align == HORIZONTAL_ALIGNMENT_CENTER else (pos.x - w if align == HORIZONTAL_ALIGNMENT_RIGHT else pos.x)
+	_labels.append(Rect2(x0, pos.y - 7.0, w, 14.0))
+
+
+## A y for a label near `y` that doesn't land on one already drawn: steps by `step` up to three times.
+func _free_y(text: String, x: float, y: float, step: float, size: int, font: Font = null) -> float:
+	var w := (font if font else UiKit.semibold).get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+	for i in 3:
+		var yy := y + step * i
+		var box := Rect2(x - w / 2.0, yy - 7.0, w, 14.0)
+		if not _labels.any(func(r: Rect2) -> bool: return r.intersects(box)):
+			return yy
+	return y
+
+
+## FIRE beside the gun pipper: right of it unless a target label or score popup is there, then
+## left, below, above; if every side is taken, wherever it covers least.
+func _draw_fire(at: Vector2) -> void:
+	var font := UiKit.bold
+	var w := font.get_string_size("FIRE", HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x
+	var spots := [
+		[Vector2(at.x + 14, at.y), HORIZONTAL_ALIGNMENT_LEFT, at.x + 14],
+		[Vector2(at.x - 14, at.y), HORIZONTAL_ALIGNMENT_RIGHT, at.x - 14 - w],
+		[Vector2(at.x, at.y + 20), HORIZONTAL_ALIGNMENT_CENTER, at.x - w / 2.0],
+		[Vector2(at.x, at.y - 20), HORIZONTAL_ALIGNMENT_CENTER, at.x - w / 2.0],
+	]
+	var taken: Array[Rect2] = _labels.duplicate()
+	for p in hud._popups.get_children():
+		taken.append((p as Control).get_global_rect())
+	var pick: Array = spots[0]
+	var least := INF
+	for s in spots:
+		var box := Rect2(float(s[2]), (s[0] as Vector2).y - 7.0, w, 14.0)
+		var covered := 0.0
+		for r in taken:
+			covered += r.intersection(box).get_area()
+		if covered < least:
+			pick = s
+			least = covered
+		if least == 0.0:
+			break
+	_text(pick[0], "FIRE", 11, Color.WHITE, pick[1], font)
 
 
 static func text_at(ci: CanvasItem, pos: Vector2, text: String, size: int, color: Color, align := HORIZONTAL_ALIGNMENT_CENTER, font: Font = null) -> void:
@@ -39,6 +84,7 @@ func _draw() -> void:
 	var g := game
 	if g == null or not hud.visible_hud or g.cinematic or not g.player.alive:
 		return
+	_labels.clear()
 	var cam := g.rig
 	var p := g.player
 	var W := size.x
@@ -59,6 +105,7 @@ func _draw() -> void:
 	if bore.z == 0.0:
 		_draw_boresight(bore.x, bore.y)
 	# Gun lead pipper.
+	var fire := Vector2.INF
 	if t and t_dist < 1600.0:
 		var tf := t_dist / (Cfg.GUN_SPEED + p.speed)
 		var lead := _proj(cam, t.pos + t.vel * tf)
@@ -68,11 +115,13 @@ func _draw() -> void:
 			draw_arc(Vector2(lead.x, lead.y), 9.0, 0, TAU, 24, c, 2.5 if on else 1.5, true)
 			draw_rect(Rect2(lead.x - 1.5, lead.y - 1.5, 3, 3), c)
 			if on:
-				_text(Vector2(lead.x + 14, lead.y), "FIRE", 11, c, HORIZONTAL_ALIGNMENT_LEFT, UiKit.bold)
+				fire = Vector2(lead.x, lead.y)
 	for a in g.aircraft:
 		if a == p or not a.targetable():
 			continue
 		_draw_marker(g, a, cam, focal, a == t)
+	if fire != Vector2.INF:
+		_draw_fire(fire)
 	var cp: Dictionary = g.mission.active_checkpoint()
 	if not cp.is_empty():
 		var s := _proj(cam, cp.pos)
@@ -209,7 +258,7 @@ func _draw_marker(g: Game, a: Aircraft, cam: Camera3D, focal: float, selected: b
 		if dist > 6000.0:
 			return
 		draw_polyline(PackedVector2Array([Vector2(s.x - 6, s.y - 12), Vector2(s.x, s.y - 6), Vector2(s.x + 6, s.y - 12)]), Cfg.C_FRIEND, 1.5, true)
-		_text(Vector2(s.x, s.y - 20), a.callsign, 10, Cfg.C_FRIEND)
+		_text(Vector2(s.x, _free_y(a.callsign, s.x, s.y - 20, -11.0, 10)), a.callsign, 10, Cfg.C_FRIEND)
 		return
 	var col := Cfg.C_ACE if a.kind == "ace" else (Cfg.C_TARGET if a.mission_target else (Cfg.C_DRONE if a.kind == "drone" else Cfg.C_HOSTILE))
 	var sz := clampf(a.radius * 1.6 * focal / maxf(dist, 1.0), 16.0 if selected else 11.0, 70.0)
@@ -222,7 +271,9 @@ func _draw_marker(g: Game, a: Aircraft, cam: Camera3D, focal: float, selected: b
 	var font: Font = UiKit.bold if selected else UiKit.semibold
 	var important := selected or a.mission_target or a.kind == "ace"
 	if selected or (important and dist < 5000.0) or dist < 1300.0:
-		_text(Vector2(s.x, s.y - sz - 9), ("TGT " + a.label) if a.mission_target else a.label, 11, col, HORIZONTAL_ALIGNMENT_CENTER, font)
+		# Aircraft in formation would print their names over each other: stack them upward.
+		var tag := ("TGT " + a.label) if a.mission_target else a.label
+		_text(Vector2(s.x, _free_y(tag, s.x, s.y - sz - 9, -12.0, 11, font)), tag, 11, col, HORIZONTAL_ALIGNMENT_CENTER, font)
 	if selected or important:
 		_text(Vector2(s.x, s.y + sz + 10), _fmt_dist(dist), 11, col, HORIZONTAL_ALIGNMENT_CENTER, font)
 	var bar_y := s.y + sz + 20

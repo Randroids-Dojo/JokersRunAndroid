@@ -10,7 +10,7 @@
  "bonus": 0.09,
  "combo": 0.136,
  "radio": 0.124,
- "klaxon": 0.1,
+ "klaxon": 0.136,
  "beep": 0.196,
  "beep_final": 0.199,
  "catapult": 0.715,
@@ -26,7 +26,7 @@
  "lock_locked": 1.3,
  "alert_slow": 1.3,
  "alert_fast": 1.3,
- "music_calm": 0.546,
+ "music_calm": 0.567,
  "music_combat": 1.3,
  "music_boss": 1.3,
  "music_final": 1.3

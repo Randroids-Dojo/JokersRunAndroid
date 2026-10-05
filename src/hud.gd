@@ -69,6 +69,8 @@ var radar_range := 4500.0
 var _radar_target := 4500.0
 var ping_t := 99.0
 var wing_order_shown := ""
+## The touch order chips are on screen (bottom centre); the radio caption steps up over them.
+var orders_up := false
 var _banner_q: Array = []
 var _banner_t := 0.0
 var _banner_active := false
@@ -205,6 +207,7 @@ func _ready() -> void:
 	_radio_text = UiKit.label(rv, "", UiKit.medium, 13, Color("f2f6f4"), false)
 	_radio_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_radio.visible = false
+	_radio.resized.connect(_place_radio)
 
 	_banner = Control.new()
 	_banner.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -231,9 +234,10 @@ func _ready() -> void:
 	_area_warn.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_area_warn.visible = false
 
-	# Letterbox bars sit above the touch controls (layer 2) but under the menus (layer 4).
+	# Letterbox bars sit above the HUD but under the touch controls (layer 3), so the pause
+	# button stays reachable in cinematics, and under the menus (layer 4).
 	var bars := CanvasLayer.new()
-	bars.layer = 3
+	bars.layer = 2
 	add_child(bars)
 	_letter_top = UiKit.rect(bars, Color.BLACK)
 	_letter_bot = UiKit.rect(bars, Color.BLACK)
@@ -325,19 +329,27 @@ func layout(w: float, h: float, sl: float, sr: float) -> void:
 	_gauge_lbls[3].size = Vector2(60, 12)
 	_pullup.position = Vector2(rx - 20, gy + 30)
 	_pullup.size = Vector2(100, 14)
-	_prompt.position = Vector2(sl + 12, 90)
-	_prompt.custom_minimum_size = Vector2(minf(214.0, w * 0.27), 0)
-	_prompt.size = Vector2(minf(214.0, w * 0.27), 0)
-	_prompt_text.custom_minimum_size = Vector2(minf(214.0, w * 0.27) - 22.0, 0)
-	_popups.position = Vector2(w / 2.0 + 46.0, h * 0.21)
+	# Narrower when a camera cutout pushes the column right, so it ends before the speed gauge.
+	var pw := minf(minf(214.0, w * 0.27), w / 2.0 - 196.0 - 8.0 - (sl + 12.0))
+	_prompt.position = Vector2(sl + 12, 104)
+	_prompt.custom_minimum_size = Vector2(pw, 0)
+	_prompt.size = Vector2(pw, 0)
+	_prompt_text.custom_minimum_size = Vector2(pw - 22.0, 0)
+	# Left of the crosshair, under the speed gauge: clear of the status column and the buttons.
+	_popups.size = Vector2(170, 0)
+	_popups.position = Vector2(w / 2.0 - 30.0 - 170.0, h * 0.475)
+	# Ends before the button cluster, which a right-hand camera cutout pushes inward.
+	var rw := minf(w * 0.33, (w - sr - 306.0) - w * 0.3)
 	_radio.position = Vector2(w * 0.3, 0)
-	_radio.custom_minimum_size = Vector2(w * 0.33, 0)
-	_radio_text.custom_minimum_size = Vector2(w * 0.33 - 23.0, 0)
-	_banner.position = Vector2(0, h * 0.24)
-	_banner.size = Vector2(w, 82)
-	_banner_stripes.position = Vector2.ZERO
-	_banner_stripes.size = Vector2(w, 82)
-	(_banner_stripes.material as ShaderMaterial).set_shader_parameter("rect_size", Vector2(w, 82))
+	_radio.custom_minimum_size = Vector2(rw, 0)
+	_radio.size.x = rw
+	_radio_text.custom_minimum_size = Vector2(rw - 23.0, 0)
+	# Just under the objective; the timer and ace panel step aside while a banner shows.
+	_banner.position = Vector2(0, 52)
+	_banner.size = Vector2(w, 67)
+	_banner_stripes.position = Vector2(w * 0.26, 0)
+	_banner_stripes.size = Vector2(w * 0.48, 67)
+	(_banner_stripes.material as ShaderMaterial).set_shader_parameter("rect_size", Vector2(w * 0.48, 67))
 	_countdown.position = Vector2(0, h * 0.52 - 50.0)
 	_countdown.size = Vector2(w, 100)
 	_area_warn.position = Vector2(0, h * 0.3)
@@ -357,7 +369,11 @@ func layout(w: float, h: float, sl: float, sr: float) -> void:
 
 
 func _place_radio() -> void:
-	_radio.position = Vector2(W * 0.3, H - 6.0 - _radio.size.y)
+	# Above the bottom letterbox bar in cinematics, above the order chips in play.
+	var lift := 44.0 if orders_up else 6.0
+	if _letter_bot.size.y > 1.0:
+		lift = maxf(lift, _letter_bot.size.y + 8.0)
+	_radio.position = Vector2(W * 0.3, H - lift - _radio.size.y)
 
 
 func set_visible_hud(on: bool) -> void:
@@ -452,7 +468,7 @@ func _show_banner(b: Array) -> void:
 	_banner_stripes.visible = style == "warning"
 	var main_col := Color.WHITE
 	var sub_col := Cfg.C_HUD
-	var size := 35
+	var size := 28
 	match style:
 		"gold":
 			main_col = Cfg.C_GOLD
@@ -491,10 +507,21 @@ func _show_banner(b: Array) -> void:
 	_banner_main.add_theme_constant_override("shadow_offset_x", int(sh_off.x))
 	_banner_main.add_theme_constant_override("shadow_offset_y", int(sh_off.y))
 	_banner_main.add_theme_constant_override("shadow_outline_size", sh_size)
+	# Fit between the score column (and its combo bar) and the radar, whatever the safe insets.
+	var half := minf(W / 2.0 - (safe_l + 62.0 + 140.0 + 8.0), (W - safe_r - 10.0 - 116.0 - 8.0) - W / 2.0)
+	var main_font := _banner_main.get_theme_font("font")
+	var text_w := main_font.get_string_size(_banner_main.text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+	if text_w > half * 2.0:
+		size = maxi(18, int(floor(size * half * 2.0 / text_w)))
+		_banner_main.add_theme_font_size_override("font_size", size)
+	var band_w := minf(W * 0.48, half * 2.0)
+	_banner_stripes.position.x = (W - band_w) / 2.0
+	_banner_stripes.size.x = band_w
+	(_banner_stripes.material as ShaderMaterial).set_shader_parameter("rect_size", _banner_stripes.size)
 	var warn := style == "warning"
-	var top := 11.0 if warn else 0.0
+	var top := 6.0 if warn else 0.0
 	_banner_main.position = Vector2(0, top)
-	_banner_main.size = Vector2(W, 36)
+	_banner_main.size = Vector2(W, 30)
 	var sub_sb := StyleBoxFlat.new()
 	sub_sb.bg_color = Color(0, 0, 0, 0.6) if warn else Color(0, 0, 0, 0)
 	sub_sb.content_margin_left = 14 if warn else 0
@@ -504,9 +531,9 @@ func _show_banner(b: Array) -> void:
 	_banner_sub.add_theme_stylebox_override("normal", sub_sb)
 	_banner_sub.size = Vector2.ZERO
 	_banner_sub.reset_size()
-	_banner_sub.position = Vector2((W - _banner_sub.size.x) / 2.0, top + 36.0 + 4.0)
+	_banner_sub.position = Vector2((W - _banner_sub.size.x) / 2.0, top + 30.0 + 4.0)
 	_banner.visible = true
-	_banner.pivot_offset = Vector2(W / 2.0, 30)
+	_banner.pivot_offset = Vector2(W / 2.0, 0)  # pop in downward, clear of the objective
 	_banner.scale = Vector2(1.5, 1.5)
 	_banner.modulate.a = 0.0
 	var tw := _tw().set_parallel(true)
@@ -521,18 +548,18 @@ func popup(lines: Array) -> void:
 	for l in lines:
 		var kind: String = l.get("kind", "bonus")
 		var col := Cfg.C_HUD
-		var size := 12
+		var size := 11
 		var font: Font = UiKit.spaced(UiKit.bold, 1.0)
 		match kind:
 			"kill":
 				col = Color.WHITE
 			"combo":
 				col = Cfg.C_COMBO
-				size = 15
+				size = 14
 				font = UiKit.bold_italic
 			"gold":
 				col = Cfg.C_GOLD
-				size = 14
+				size = 13
 			"time":
 				col = Cfg.C_COMBO
 			"bad":
@@ -541,6 +568,8 @@ func popup(lines: Array) -> void:
 		if l.has("points"):
 			text += "  +" + MathX.fmt_score(l.points)
 		var lab := UiKit.label(_popups, text, font, size, col)
+		lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		lab.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART  # long lines wrap, clear of the prompt
 		lab.modulate.a = 0.0
 		var tw := lab.create_tween().set_ignore_time_scale(true)
 		tw.tween_interval(i * 0.07)
@@ -549,7 +578,7 @@ func popup(lines: Array) -> void:
 		tw.tween_property(lab, "modulate:a", 0.0, 0.5)
 		tw.tween_callback(lab.queue_free)
 		i += 1
-	while _popups.get_child_count() > 9:
+	while _popups.get_child_count() > 4:
 		var c := _popups.get_child(0)
 		_popups.remove_child(c)
 		c.queue_free()
@@ -678,6 +707,11 @@ func update(dt: float, g: Game) -> void:
 			_banner.visible = false
 	if not _banner_active and not _banner_q.is_empty():
 		_show_banner(_banner_q.pop_front())
+	# The banner sits over the timer and ace panel, which step aside meanwhile.
+	var status_a := 0.0 if cinematic or _banner_active else 1.0
+	if _timer_val.modulate.a != status_a:
+		for c in [_timer_lbl, _timer_val, _subtimer, _boss]:
+			(c as CanvasItem).modulate.a = status_a
 	if _banner_active and _banner_stripes.visible:
 		_banner_main.modulate.a = 1.0 if fmod(Time.get_ticks_msec() / 1000.0, 0.45) < 0.225 else 0.25
 	else:
@@ -691,7 +725,6 @@ func update(dt: float, g: Game) -> void:
 			_radio_text.text = shown
 			# Let the panel shrink back after a longer line.
 			_radio.size.y = 0.0
-		_place_radio()
 		if _radio_t >= _radio_dur:
 			_radio_cur = []
 			_radio.visible = false
@@ -707,6 +740,8 @@ func update(dt: float, g: Game) -> void:
 		_radio_text.text = ""
 		var spoken: float = on_radio.call(who, _radio_cur[1]) if on_radio.is_valid() else 0.0
 		_radio_dur = maxf(1.8 + (_radio_cur[1] as String).length() * 0.055, spoken + 0.6)
+	if _radio.visible:
+		_place_radio()  # follows the letterbox bars and the order chips
 	# Numbers.
 	var s := g.score
 	if s.total != _last_score:

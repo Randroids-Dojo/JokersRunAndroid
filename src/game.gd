@@ -121,7 +121,7 @@ func _ready() -> void:
 	hud = Hud.new()
 	add_child(hud)
 	var touch_layer := CanvasLayer.new()
-	touch_layer.layer = 2
+	touch_layer.layer = 3
 	add_child(touch_layer)
 	touch = TouchControls.new()
 	touch_layer.add_child(touch)
@@ -159,6 +159,10 @@ func _ready() -> void:
 		add_child(SelfTest.new())
 
 
+## Selftest only: fake safe-area insets (left, right) to check layouts for a camera cutout.
+var safe_override := Vector2(-1, -1)
+
+
 func _on_resize() -> void:
 	var vp := get_viewport()
 	_view_size = vp.get_visible_rect().size
@@ -174,6 +178,9 @@ func _on_resize() -> void:
 		sl = maxf(0.0, safe.position.x * k)
 		sr = maxf(0.0, (win.x - safe.end.x) * k)
 		sb = maxf(0.0, (win.y - safe.end.y) * (h / float(win.y)))
+	if safe_override.x >= 0.0:
+		sl = safe_override.x
+		sr = safe_override.y
 	hud.layout(w, h, sl, sr)
 	touch.layout(w, h, sl, sr, sb)
 	screens.layout(w, h, sl, sr)
@@ -1143,6 +1150,8 @@ func _update_touch_ui(dt: float) -> void:
 	for m in weapons.incoming_missiles(p):
 		if m.pos.distance_to(p.pos) < 1300.0:
 			evade = true
+	var orders: String = wing_order if not formation and hud.wing_order_shown != "" else ""
+	hud.orders_up = touch.enabled and orders != "" and controls_enabled and not cinematic
 	touch.render({
 		"live": state == "play",
 		"controls": controls_enabled and not cinematic,
@@ -1154,7 +1163,7 @@ func _update_touch_ui(dt: float) -> void:
 		"boosting": pc.boosting,
 		"gun_hot": gun_hot,
 		"evade": evade and controls_enabled,
-		"orders": wing_order if not formation and hud.wing_order_shown != "" else "",
+		"orders": orders,
 		"teach": touch_teach,
 		"hint": "TAP TO LAUNCH" if skippable and state == "play" else "",
 	}, dt)

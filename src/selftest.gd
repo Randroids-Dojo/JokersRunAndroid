@@ -16,6 +16,8 @@ var _bot := Bot.new()
 var _shot_i := 0
 var _radio_lines := 0
 var _radio_played := 0
+var _overlaps := {}  # "A x B" -> samples
+var _auditing := false
 
 
 func _ready() -> void:
@@ -30,6 +32,12 @@ func _ready() -> void:
 	if FileAccess.file_exists("user://selftest_mode.txt"):
 		mode = FileAccess.get_file_as_string("user://selftest_mode.txt").strip_edges()
 	DirAccess.make_dir_recursive_absolute("user://shots")
+	if DisplayServer.get_name() == "headless":
+		get_tree().root.size = Vector2i(2244, 1008)  # a Pixel 8 Pro screen, for layout checks
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--cutout="):  # left or right: fake a camera cutout's safe inset
+			(get_parent() as Game).safe_override = Vector2(58, 0) if a.ends_with("left") else Vector2(0, 58)
+			(get_parent() as Game)._on_resize.call_deferred()
 	_log("start mode=%s speed=%.1f os=%s renderer=%s" % [mode, speed, OS.get_name(), RenderingServer.get_current_rendering_method()])
 	_run.call_deferred()
 
@@ -103,6 +111,8 @@ func frame_stats(tag: String) -> void:
 
 
 func shot(name: String) -> void:
+	if DisplayServer.get_name() == "headless":
+		return  # layout-only runs on the desktop
 	await RenderingServer.frame_post_draw
 	var img := get_viewport().get_texture().get_image()
 	_shot_i += 1
@@ -170,6 +180,7 @@ func _press_ui(screen: Control, label: String) -> bool:
 func _run() -> void:
 	g = get_parent() as Game
 	_watch_radio()
+	_audit_loop()
 	await _wait(2.0)
 	_check("title_state", g.state == "title", g.state)
 	await shot("title")
@@ -326,6 +337,107 @@ func _mission_run() -> void:
 	await shot("debrief")
 	_check("mission_complete", g.state == "debrief", "score=%d rank=%s time=%.0fs" % [int(g.score.total), g.score.rank(), (Time.get_ticks_msec() - t0) / 1000.0])
 	_check("radio_voice", _radio_lines > 0 and _radio_played == _radio_lines, "%d/%d lines played" % [_radio_played, _radio_lines])
+	_auditing = false
+	_check("hud_no_overlaps", _overlaps.is_empty(), "%d overlapping pairs" % _overlaps.size())
+
+
+# ---------------------------------------------------------------- Layout audit
+
+## Every 0.2 s, measures each visible HUD text, panel and touch control (text by its glyphs)
+## and logs any two that overlap, once per pair (same check as the web's scripts/layout.mjs).
+func _audit_loop() -> void:
+	_auditing = true
+	while _auditing:
+		await _wait(0.2)
+		if g.state == "play" or g.state == "clear":
+			_audit_layout()
+
+
+func _alpha(c: CanvasItem) -> float:
+	var a := 1.0
+	var n: Node = c
+	while n is CanvasItem:
+		a *= (n as CanvasItem).modulate.a
+		n = n.get_parent()
+	return a * c.self_modulate.a
+
+
+func _item(out: Array, name: String, c: Control, as_text := true) -> void:
+	if c == null or not c.is_visible_in_tree() or _alpha(c) < 0.95 or c.scale != Vector2.ONE:
+		return
+	var r := c.get_global_rect()
+	if as_text and c is Label and (c as Label).text != "":
+		var l := c as Label
+		var font := l.get_theme_font("font")
+		var fs := l.get_theme_font_size("font_size")
+		var tw := font.get_string_size(l.text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		var lines := l.get_line_count()
+		if lines <= 1 and tw <= r.size.x + 1.0:
+			var x := r.position.x
+			if l.horizontal_alignment == HORIZONTAL_ALIGNMENT_CENTER:
+				x += (r.size.x - tw) / 2.0
+			elif l.horizontal_alignment == HORIZONTAL_ALIGNMENT_RIGHT:
+				x += r.size.x - tw
+			var lh := font.get_height(fs)
+			var y := r.position.y + ((r.size.y - lh) / 2.0 if l.vertical_alignment == VERTICAL_ALIGNMENT_CENTER else 0.0)
+			r = Rect2(x, y + lh * 0.125, tw, lh * 0.75)
+	elif as_text and c is Label:
+		return
+	if r.size.x >= 1.0 and r.size.y >= 1.0:
+		out.append([name, r])
+
+
+func _audit_layout() -> void:
+	var h := g.hud
+	var items: Array = []
+	for pair in [["score_lbl", h._score_lbl], ["score", h._score_val], ["hot", h._hot], ["combo", h._combo_text], ["objective", h._objective], ["timer_lbl", h._timer_lbl], ["timer", h._timer_val], ["subtimer", h._subtimer], ["hull", h._hull_lbl], ["hull_num", h._hull_num], ["boss_name", h._boss_name], ["boss_stage", h._boss_stage], ["boss_press", h._boss_press_lbl], ["boss_status", h._boss_status], ["pullup", h._pullup], ["banner", h._banner_main], ["banner_sub", h._banner_sub], ["countdown", h._countdown], ["area_warn", h._area_warn]]:
+		_item(items, pair[0], pair[1])
+	for pair in [["combo_bar", h._combo_bar], ["hull_bar", h._hull_bar], ["boss_hp", h._boss_hp], ["boss_press_bar", h._boss_press], ["spd", h._spd_box], ["alt", h._alt_box], ["prompt", h._prompt], ["radio", h._radio], ["radar", h.radar]]:
+		_item(items, pair[0], pair[1], false)
+	for i in h._gauge_lbls.size():
+		_item(items, "gauge_lbl%d" % i, h._gauge_lbls[i])
+	for i in h._scout_rows.size():
+		var row: Array = h._scout_rows[i]
+		_item(items, "scout_name", row[0])
+		_item(items, "scout_bar", row[1], false)
+		_item(items, "scout_state", row[2])
+	for p in h._popups.get_children():
+		_item(items, "popup:" + (p as Label).text, p)
+	if h._banner_stripes.visible:
+		_item(items, "banner_band", h._banner_stripes, false)
+	for bar in [h._letter_top, h._letter_bot]:
+		# Fully closed bars in a cinematic; HUD fading back in as they open is a transition.
+		if h.cinematic and (bar as Control).size.y >= h.H * 0.09 - 0.5:
+			items.append(["letterbox", (bar as Control).get_global_rect()])
+	var t := g.touch
+	if t.visible:
+		var cine: bool = not t.view.controls
+		for name in t._btn:
+			if cine and name != "pause":
+				continue
+			if name.begins_with("order") and t.view.orders == "":
+				continue
+			var b: Dictionary = t._btn[name]
+			var r: Rect2 = b.rect if b.has("rect") else Rect2(b.c - Vector2(b.r, b.r), Vector2(b.r, b.r) * 2.0)
+			items.append(["touch:" + name, r])
+	for i in items.size():
+		for j in range(i + 1, items.size()):
+			var a: Array = items[i]
+			var b: Array = items[j]
+			var ov: Rect2 = (a[1] as Rect2).intersection(b[1])
+			if ov.size.x <= 2.0 or ov.size.y <= 2.0:
+				continue
+			var names := [String(a[0]).get_slice(":", 0), String(b[0]).get_slice(":", 0)]
+			if "letterbox" in names and "touch" in names:
+				continue  # the pause button is drawn above the bars on purpose
+			if names[0].begins_with("banner") and names[1].begins_with("banner"):
+				continue  # the warning band sits behind its own text
+			names.sort()
+			var key := "%s x %s" % names
+			if not _overlaps.has(key):
+				_overlaps[key] = 0
+				_log("overlap %s  (%s %s / %s %s) phase='%s'" % [key, a[0], a[1], b[0], b[1], g.mission.phase])
+			_overlaps[key] += 1
 
 
 ## Counts radio lines and whether each one's clip is actually playing just after it starts.
@@ -334,8 +446,10 @@ func _watch_radio() -> void:
 	g.hud.on_radio = func(who: String, text: String) -> float:
 		var dur: float = speak.call(who, text)
 		_radio_lines += 1
+		var n := _radio_lines
 		get_tree().create_timer(0.4, true, false, true).timeout.connect(func() -> void:
-			if g.audio._voice.playing:
+			# A priority line may have cut this one off on purpose; then the newer one is playing.
+			if g.audio._voice.playing or _radio_lines > n:
 				_radio_played += 1
 			else:
 				_log("silent radio line %s: %s" % [who, text]))
